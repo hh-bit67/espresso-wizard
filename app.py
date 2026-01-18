@@ -227,3 +227,19 @@ st.divider()
 
 if age_msg: st.warning(age_msg)
 if pi_time_msg: st.info(pi_time_msg)
+
+# Yield Warning
+if current_yield > 0:
+    yield_diff = abs(current_yield - calc_target)
+    tolerance = max(3.0, calc_target * 0.1)
+    if yield_diff > tolerance:
+        st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
+        explanation_log.append(f"• **Yield:** Missed target by {round(yield_diff,1)}g. This invalidates other variables.")
+
+if is_decaf and flow_fast:
+    st.info("☕ **Decaf Tip:** Structure is weak. Consider Dosing +0.5g up.")
+
+# --- EXPLANATION SECTION ---
+with st.expander("📝 Logic Analysis (Why did we choose this?)"):
+    for log_item in explanation_log:
+        st.markdown(log_item)
