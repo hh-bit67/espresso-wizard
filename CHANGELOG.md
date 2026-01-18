@@ -1,5 +1,10 @@
 # Changelog
 
+## [V5.6] - 2026-01-19
+### Fixed
+- **Sour Loop (Dead End):** Fixed logic where "Sour" shots at max temperature resulted in no advice. Now suggests "Increase Yield +2g" (Ratio change) to improve extraction without heat.
+- **Dose Safety:** Reverted Dose Increment from +1.0g to +0.5g to prevent basket overfilling. Added specific warning to check Headroom (Razor Tool).
+
 ## [V5.5] - 2026-01-19
 ### Added
 - **Logic Explanation Module:** Added an "Analysis" dropdown that explains the "Why" behind every adjustment (Grind, Dose, Temp, PI) in plain English.
