@@ -1,5 +1,10 @@
 # Changelog
 
+## [V5.7] - 2026-01-19
+### Added
+- **Dynamic Yield Targets:** The Wizard now explicitly calculates and displays a "Next Target Yield" (e.g., 40g) when Ratio adjustments are required.
+- **Visual Feedback for Ratio Changes:** Added an `st.info` box that appears when the "Sour Fallback" logic is triggered, clearly instructing the user to "Extend shot to fix Sourness."
+
 ## [V5.6] - 2026-01-19
 ### Fixed
 - **Sour Loop (Dead End):** Fixed logic where "Sour" shots at max temperature resulted in no advice. Now suggests "Increase Yield +2g" (Ratio change) to improve extraction without heat.
