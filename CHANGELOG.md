@@ -1,5 +1,13 @@
 # Changelog
 
+## [V5.9] - 2026-01-19
+### Added
+- **Session Logging:** Added a "Log This Shot" button. Users can now build a table of their shots during a single session to track trends.
+- **Dynamic Yield Baseline:** When advising a Ratio Extension (for Sourness), the system now calculates the "Next Target" based on the *Actual Yield* (if the user already went long) rather than the original target. This prevents the system from suggesting a shorter shot to fix a sour one.
+
+### Fixed
+- **Temp Safety Enforcement:** If the user enters a temperature above the Safe Limit (e.g., 92°C for Dark Roast), the system now actively advises reducing it to the cap (91°C), even if the shot is Sour. It compensates for the lost heat by aggressively extending the Target Yield.
+
 ## [V5.7] - 2026-01-19
 ### Added
 - **Dynamic Yield Targets:** The Wizard now explicitly calculates and displays a "Next Target Yield" (e.g., 40g) when Ratio adjustments are required.
