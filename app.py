@@ -1,12 +1,16 @@
 import streamlit as st
+import pandas as pd
 from datetime import date
-import math
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Espresso Wizard V5.8", page_icon="☕")
+st.set_page_config(page_title="Espresso Wizard V5.9", page_icon="☕", layout="wide")
 
-st.title("☕ Espresso Diagnostic Engine V5.8")
+st.title("☕ Espresso Diagnostic Engine V5.9")
 st.markdown("Optimization logic for **Breville Dual Boiler + Niche Zero**.")
+
+# --- SESSION STATE (HISTORY) ---
+if 'history' not in st.session_state:
+    st.session_state.history = []
 
 # --- SIDEBAR: INPUTS ---
 with st.sidebar:
@@ -21,7 +25,7 @@ with st.sidebar:
         roast_date = None
     
     st.markdown("---")
-    st.caption("🔧 Advanced Calibration")
+    st.caption("🔧 Calibration")
     use_manual_sens = st.checkbox("Override Sensitivity?")
     manual_sens = 1.0
     if use_manual_sens:
@@ -54,7 +58,7 @@ with st.sidebar:
     
     calc_target = current_dose * ratio if shot_style != "Custom" else target_yield
     st.caption(f"🎯 Target Yield: {calc_target}g")
-    current_yield = st.number_input("Yield Out (g)", value=0.0, step=0.1, help="Enter actual weight")
+    current_yield = st.number_input("Yield Out (g)", value=0.0, step=0.1)
     
     current_time = st.number_input("Time Total (s)", value=30.0, step=1.0)
     current_temp = st.number_input("Temp (°C)", value=93, min_value=86, max_value=96)
@@ -68,8 +72,24 @@ with st.sidebar:
     st.header("4. Sensory Feedback")
     taste = st.selectbox("Taste Balance", ["Balanced", "Sour", "Bitter", "Harsh"])
     texture = st.selectbox("Texture", ["Syrupy", "Watery", "Dry", "Channeling"])
+    
+    st.markdown("---")
+    if st.button("📝 Log This Shot"):
+        # Create a record
+        record = {
+            "Bean": bean_name,
+            "Grind": current_grind,
+            "Dose": current_dose,
+            "Yield": current_yield,
+            "Time": current_time,
+            "Temp": current_temp,
+            "Taste": taste,
+            "Texture": texture
+        }
+        st.session_state.history.append(record)
+        st.success("Shot Logged!")
 
-# --- LOGIC ENGINE (V5.8) ---
+# --- LOGIC ENGINE (V5.9) ---
 
 explanation_log = []
 
@@ -141,12 +161,24 @@ if is_decaf:
 
 temp_adj = 0
 temp_msg = ""
-next_target_yield = calc_target # Default next target is same as current
+next_target_yield = calc_target
 flow_fast = current_time < (target_time_min - 8)
 
 if flow_fast:
     temp_msg = "⚠️ **Flow too fast.** Ignore Temp."
     explanation_log.append("• **Temp:** Skipped. Flow is erratic/fast; changing temp now would be inconsistent.")
+
+# NEW: Enforce Max Temp Cap even if Sour
+elif current_temp > max_temp:
+    temp_adj = max_temp - current_temp # Force down to max
+    explanation_log.append(f"• **Temp:** Current temp ({current_temp}°C) exceeds safety limit for {roast_level} Roast ({max_temp}°C). Reducing to {max_temp}°C to prevent ashiness.")
+    
+    if taste == "Sour":
+         # If we are lowering temp on a Sour shot, we must extend yield aggressively
+         base_yield = max(calc_target, current_yield) # Start from wherever we actually are
+         next_target_yield = base_yield + 2.0
+         explanation_log.append(f"• **Ratio:** Reducing temp will increase Sourness. We MUST extend the shot (+2g from current {base_yield}g) to compensate.")
+
 elif taste == "Harsh":
     if roast_level == "Light":
         temp_msg = "⚠️ **Harshness (Light Roast):** Try Temp -1°C OR Check Prep."
@@ -159,9 +191,10 @@ elif taste == "Sour":
         temp_adj = +1
         explanation_log.append(f"• **Temp:** Sourness indicates under-extraction. Increasing Temp (+1°C) improves solubility.")
     else:
-        # SOUR FALLBACK: INCREASE YIELD
-        next_target_yield = calc_target + 2.0
-        explanation_log.append(f"• **Ratio:** You are Sour but at Max Temp ({max_temp}°C). We must extend the shot (+2g yield) to extract more sweetness without burning the beans.")
+        # SOUR FALLBACK
+        base_yield = max(calc_target, current_yield)
+        next_target_yield = base_yield + 2.0
+        explanation_log.append(f"• **Ratio:** At Max Temp ({max_temp}°C). Extending shot (+2g) to extract sweetness.")
 
 elif taste == "Bitter" and current_temp > min_temp:
     temp_adj = -1
@@ -186,7 +219,7 @@ next_pi = max(55, min(99, current_pi_power + pi_adj))
 
 # --- OUTPUT DISPLAY ---
 st.divider()
-st.subheader("🔮 Wizard Diagnosis (V5.8)")
+st.subheader("🔮 Wizard Diagnosis (V5.9)")
 
 col1, col2 = st.columns(2)
 
@@ -197,20 +230,20 @@ with col1:
     else:
         st.caption("Grind is Optimal")
     
-    st.markdown("---") # Visual separator
+    st.markdown("---")
     
     # DOSE OUTPUT
     if dose_adj != 0:
         st.markdown(f"**⚖️ Next Dose:** `{current_dose + dose_adj}g`")
         st.caption("Increased +0.5g for Body")
         st.warning("⚠️ Check Headroom (Razor Tool).")
-    elif next_target_yield == calc_target:
-        st.caption("Dose & Yield are Optimal")
+    elif next_target_yield != calc_target:
+        st.caption("Dose is Optimal")
 
-    # YIELD OUTPUT (Decoupled from Dose)
+    # YIELD OUTPUT
     if next_target_yield != calc_target:
         st.markdown(f"**🎯 Next Target Yield:** `{round(next_target_yield, 1)}g`")
-        st.caption(f"Old Target: {round(calc_target, 1)}g")
+        st.caption(f"Based on: {max(calc_target, current_yield)}g + 2g")
         st.info("💡 Extend shot to fix Sourness")
 
 with col2:
@@ -220,11 +253,11 @@ with col2:
         st.markdown(f"**🌡️ Next Temp:** `{next_temp}°C`")
         if temp_adj != 0: 
             st.caption(f"Adj: {temp_adj:+d}°C")
-            st.warning("⚠️ Change may affect flow.")
+            if temp_adj > 0: st.warning("⚠️ Change may affect flow.")
         else: 
             st.caption("Temp is Optimal")
 
-    st.markdown("---") # Visual separator
+    st.markdown("---")
 
     if pi_adj != 0:
         st.markdown(f"**💪 Next PI Power:** `{next_pi}%`")
@@ -236,7 +269,6 @@ st.divider()
 if age_msg: st.warning(age_msg)
 if pi_time_msg: st.info(pi_time_msg)
 
-# Yield Warning
 if current_yield > 0:
     yield_diff = abs(current_yield - calc_target)
     tolerance = max(3.0, calc_target * 0.1)
@@ -244,10 +276,14 @@ if current_yield > 0:
         st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
         explanation_log.append(f"• **Yield:** Missed target by {round(yield_diff,1)}g. This invalidates other variables.")
 
-if is_decaf and flow_fast:
-    st.info("☕ **Decaf Tip:** Structure is weak. Consider Dosing +0.5g up.")
-
 # --- EXPLANATION SECTION ---
 with st.expander("📝 Logic Analysis (Why did we choose this?)"):
     for log_item in explanation_log:
         st.markdown(log_item)
+
+# --- HISTORY SECTION ---
+if len(st.session_state.history) > 0:
+    st.divider()
+    st.subheader("📜 Session Log")
+    df = pd.DataFrame(st.session_state.history)
+    st.dataframe(df)
