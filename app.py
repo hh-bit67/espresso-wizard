@@ -3,9 +3,9 @@ from datetime import date
 import math
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Espresso Wizard V5.7", page_icon="☕")
+st.set_page_config(page_title="Espresso Wizard V5.8", page_icon="☕")
 
-st.title("☕ Espresso Diagnostic Engine V5.7")
+st.title("☕ Espresso Diagnostic Engine V5.8")
 st.markdown("Optimization logic for **Breville Dual Boiler + Niche Zero**.")
 
 # --- SIDEBAR: INPUTS ---
@@ -69,7 +69,7 @@ with st.sidebar:
     taste = st.selectbox("Taste Balance", ["Balanced", "Sour", "Bitter", "Harsh"])
     texture = st.selectbox("Texture", ["Syrupy", "Watery", "Dry", "Channeling"])
 
-# --- LOGIC ENGINE (V5.7) ---
+# --- LOGIC ENGINE (V5.8) ---
 
 explanation_log = []
 
@@ -186,7 +186,7 @@ next_pi = max(55, min(99, current_pi_power + pi_adj))
 
 # --- OUTPUT DISPLAY ---
 st.divider()
-st.subheader("🔮 Wizard Diagnosis (V5.7)")
+st.subheader("🔮 Wizard Diagnosis (V5.8)")
 
 col1, col2 = st.columns(2)
 
@@ -197,14 +197,20 @@ with col1:
     else:
         st.caption("Grind is Optimal")
     
+    st.markdown("---") # Visual separator
+    
     # DOSE OUTPUT
     if dose_adj != 0:
         st.markdown(f"**⚖️ Next Dose:** `{current_dose + dose_adj}g`")
         st.caption("Increased +0.5g for Body")
         st.warning("⚠️ Check Headroom (Razor Tool).")
-    elif next_target_yield != calc_target:
+    elif next_target_yield == calc_target:
+        st.caption("Dose & Yield are Optimal")
+
+    # YIELD OUTPUT (Decoupled from Dose)
+    if next_target_yield != calc_target:
         st.markdown(f"**🎯 Next Target Yield:** `{round(next_target_yield, 1)}g`")
-        st.caption(f"Previous Target: {round(calc_target, 1)}g")
+        st.caption(f"Old Target: {round(calc_target, 1)}g")
         st.info("💡 Extend shot to fix Sourness")
 
 with col2:
@@ -217,6 +223,8 @@ with col2:
             st.warning("⚠️ Change may affect flow.")
         else: 
             st.caption("Temp is Optimal")
+
+    st.markdown("---") # Visual separator
 
     if pi_adj != 0:
         st.markdown(f"**💪 Next PI Power:** `{next_pi}%`")
