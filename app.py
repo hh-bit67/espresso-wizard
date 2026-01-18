@@ -226,4 +226,4 @@ with col2:
 st.divider()
 
 if age_msg: st.warning(age_msg)
-if pi_time_msg: st.info(pi_time_msg
+if pi_time_msg: st.info(pi_time_msg)
