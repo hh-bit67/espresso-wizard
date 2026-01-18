@@ -3,9 +3,9 @@ from datetime import date
 import math
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Espresso Wizard V5.4", page_icon="☕")
+st.set_page_config(page_title="Espresso Wizard V5.5", page_icon="☕")
 
-st.title("☕ Espresso Diagnostic Engine V5.4")
+st.title("☕ Espresso Diagnostic Engine V5.5")
 st.markdown("Optimization logic for **Breville Dual Boiler + Niche Zero**.")
 
 # --- SIDEBAR: INPUTS ---
@@ -14,14 +14,12 @@ with st.sidebar:
     bean_name = st.text_input("Bean Name", "Onyx Geometry")
     roast_level = st.selectbox("Roast Level", ["Light", "Medium", "Dark"])
     
-    # NEW: Optional Roast Date
     know_date = st.checkbox("Know Roast Date?", value=True)
     if know_date:
         roast_date = st.date_input("Roast Date", date.today())
     else:
         roast_date = None
     
-    # Sensitivity Override
     st.markdown("---")
     st.caption("🔧 Advanced Calibration")
     use_manual_sens = st.checkbox("Override Sensitivity?")
@@ -32,13 +30,12 @@ with st.sidebar:
     st.header("2. Shot Parameters")
     shot_style = st.selectbox("Shot Style", ["Ristretto (1:1.25)", "Normale (1:2)", "Lungo (1:3)", "Custom"])
     
-    # Calculate Targets
     if shot_style == "Custom":
         target_yield = st.number_input("Target Yield (g)", value=36.0)
         target_time_min = st.number_input("Min Time (s)", value=25.0)
         target_time_max = st.number_input("Max Time (s)", value=30.0)
         target_center = (target_time_min + target_time_max) / 2
-        ratio = 0 # Not used in custom
+        ratio = 0 
     else:
         if "Ristretto" in shot_style:
             ratio = 1.25
@@ -55,11 +52,9 @@ with st.sidebar:
     current_grind = st.number_input("Current Grind", value=15.0, step=0.5)
     current_dose = st.number_input("Dose In (g)", value=18.0, step=0.5)
     
-    # NEW: Decoupled Yield Input
-    # We calculate the target for display, but don't force it into the input box
     calc_target = current_dose * ratio if shot_style != "Custom" else target_yield
     st.caption(f"🎯 Target Yield: {calc_target}g")
-    current_yield = st.number_input("Yield Out (g)", value=0.0, step=0.1, help="Enter the actual weight in the cup")
+    current_yield = st.number_input("Yield Out (g)", value=0.0, step=0.1, help="Enter actual weight")
     
     current_time = st.number_input("Time Total (s)", value=30.0, step=1.0)
     current_temp = st.number_input("Temp (°C)", value=93, min_value=86, max_value=96)
@@ -68,52 +63,70 @@ with st.sidebar:
     with col_pi1:
         current_pi_power = st.number_input("PI Power (%)", value=65, min_value=55, max_value=99)
     with col_pi2:
-        # NEW: PI Time Input
         current_pi_time = st.number_input("PI Time (s)", value=7, step=1)
     
     st.header("4. Sensory Feedback")
     taste = st.selectbox("Taste Balance", ["Balanced", "Sour", "Bitter", "Harsh"])
     texture = st.selectbox("Texture", ["Syrupy", "Watery", "Dry", "Channeling"])
 
-# --- LOGIC ENGINE (V5.4) ---
+# --- LOGIC ENGINE (V5.5) ---
 
-# 1. Bean Age Logic (Nullable)
+explanation_log = [] # Store "Why" reasons here
+
+# 1. Bean Age Logic
 age_msg = ""
 if know_date and roast_date:
     days_old = (date.today() - roast_date).days
     if days_old < 7:
         age_msg = f"⚠️ **Beans Fresh ({days_old}d).** Rest needed."
+        explanation_log.append(f"• **Age:** Beans are very fresh (<7d). CO2 off-gassing causes resistance bubbles.")
     elif days_old > 30:
         age_msg = f"⚠️ **Beans Aging ({days_old}d).** Expect faster flow."
+        explanation_log.append(f"• **Age:** Beans are aging (>30d). Staling reduces resistance, causing faster flow.")
 
 # 2. Grind Logic
 lower_limit = target_time_min
 upper_limit = target_time_max
 
 base_adj = 0.0
+reason = ""
+
 if current_time >= lower_limit and current_time <= upper_limit:
     base_adj = 0.0
+    reason = "Time is within target window."
 elif current_time < (lower_limit - 8):
     base_adj = -2.0
+    reason = "Shot ran >8s fast (Gusher)."
 elif current_time < (lower_limit - 4):
     base_adj = -1.0
+    reason = "Shot ran >4s fast."
 elif current_time < lower_limit:
     base_adj = -0.5
+    reason = "Shot ran slightly fast."
 elif current_time > (upper_limit + 10):
     base_adj = +1.5
+    reason = "Shot choked (>10s slow)."
 elif current_time > (upper_limit + 5):
     base_adj = +1.0
+    reason = "Shot ran >5s slow."
 elif current_time > upper_limit:
     base_adj = +0.5
+    reason = "Shot ran slightly slow."
 
 sensitivity = manual_sens if use_manual_sens else (0.6 if roast_level == "Dark" else (0.8 if roast_level == "Medium" else 1.0))
 final_grind_adj = round((base_adj * sensitivity) * 2) / 2
 next_grind = current_grind + final_grind_adj
 
+if base_adj != 0:
+    explanation_log.append(f"• **Grind:** {reason} Applied base adj ({base_adj}) x Sensitivity ({sensitivity}) = {final_grind_adj}.")
+else:
+    explanation_log.append("• **Grind:** Flow rate is optimal. No change needed.")
+
 # 3. Dose Logic
 dose_adj = 0.0
 if texture == "Watery" and final_grind_adj == 0:
     dose_adj = +1.0
+    explanation_log.append("• **Dose:** Time is perfect but texture is Watery. Grind change would ruin time, so we increase mass (+1.0g) to add resistance and body.")
 
 # 4. Temp Logic
 min_temp, max_temp = 92, 96
@@ -124,6 +137,7 @@ if roast_level == "Light": min_temp, max_temp = 93, 96
 is_decaf = "Decaf" in bean_name or "decaf" in bean_name
 if is_decaf:
     max_temp = min(max_temp, 92)
+    explanation_log.append("• **Temp:** Decaf detected. Safety cap applied (Max 92°C) to prevent ashiness.")
 
 temp_adj = 0
 temp_msg = ""
@@ -131,15 +145,20 @@ flow_fast = current_time < (target_time_min - 8)
 
 if flow_fast:
     temp_msg = "⚠️ **Flow too fast.** Ignore Temp."
+    explanation_log.append("• **Temp:** Skipped. Flow is erratic/fast; changing temp now would be inconsistent. Fix flow first.")
 elif taste == "Harsh":
     if roast_level == "Light":
         temp_msg = "⚠️ **Harshness (Light Roast):** Try Temp -1°C OR Check Prep."
+        explanation_log.append("• **Temp:** Harshness in Light Roast can be over-extraction (Temp too high) or channeling.")
     else:
         temp_msg = "🛑 **Harshness Detected:** Check WDT/Distribution."
+        explanation_log.append("• **Temp:** Harshness in Dark/Med roast is rarely Temp related. It indicates uneven extraction (Channeling).")
 elif taste == "Sour" and current_temp < max_temp:
     temp_adj = +1
+    explanation_log.append(f"• **Temp:** Sourness indicates under-extraction. Increasing Temp (+1°C) improves solubility.")
 elif taste == "Bitter" and current_temp > min_temp:
     temp_adj = -1
+    explanation_log.append(f"• **Temp:** Bitterness indicates over-extraction. Reducing Temp (-1°C) reduces tannin solubility.")
 
 next_temp = current_temp + temp_adj
 
@@ -148,17 +167,19 @@ pi_adj = 0
 pi_time_msg = ""
 if texture == "Channeling":
     pi_adj = -15 if is_decaf else -10
+    explanation_log.append(f"• **PI Power:** Channeling detected. Reducing pressure ({pi_adj}%) helps preserve puck integrity.")
 elif texture == "Watery":
     pi_adj = +5
+    explanation_log.append("• **PI Power:** Shot is Watery. Increasing PI pressure (+5%) compresses the puck for more resistance.")
 elif texture == "Dry":
-    # NEW: Explicit PI Time instruction
     pi_time_msg = f"💧 **Dryness Detected:** Increase PI Time to {current_pi_time + 3}s (+3s)"
+    explanation_log.append("• **PI Time:** Dry/Astringent finish often means uneven saturation. Longer Pre-Infusion (+3s) helps water penetrate evenly.")
 
 next_pi = max(55, min(99, current_pi_power + pi_adj))
 
 # --- OUTPUT DISPLAY ---
 st.divider()
-st.subheader("🔮 Wizard Diagnosis (V5.4)")
+st.subheader("🔮 Wizard Diagnosis (V5.5)")
 
 col1, col2 = st.columns(2)
 
@@ -200,6 +221,12 @@ tolerance = max(3.0, calc_target * 0.1)
 
 if current_yield > 0 and yield_diff > tolerance:
     st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
+    explanation_log.append(f"• **Yield:** You missed the target by {round(yield_diff,1)}g. This drastically changes the Flavor Balance (Sour/Bitter).")
 
 if is_decaf and flow_fast:
     st.info("☕ **Decaf Tip:** Structure is weak. Consider Dosing +0.5g up.")
+
+# --- EXPLANATION SECTION ---
+with st.expander("📝 Logic Analysis (Why did we choose this?)"):
+    for log_item in explanation_log:
+        st.markdown(log_item)
