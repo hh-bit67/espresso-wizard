@@ -3,9 +3,9 @@ from datetime import date
 import math
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Espresso Wizard V5.5", page_icon="☕")
+st.set_page_config(page_title="Espresso Wizard V5.6", page_icon="☕")
 
-st.title("☕ Espresso Diagnostic Engine V5.5")
+st.title("☕ Espresso Diagnostic Engine V5.6")
 st.markdown("Optimization logic for **Breville Dual Boiler + Niche Zero**.")
 
 # --- SIDEBAR: INPUTS ---
@@ -69,9 +69,9 @@ with st.sidebar:
     taste = st.selectbox("Taste Balance", ["Balanced", "Sour", "Bitter", "Harsh"])
     texture = st.selectbox("Texture", ["Syrupy", "Watery", "Dry", "Channeling"])
 
-# --- LOGIC ENGINE (V5.5) ---
+# --- LOGIC ENGINE (V5.6) ---
 
-explanation_log = [] # Store "Why" reasons here
+explanation_log = []
 
 # 1. Bean Age Logic
 age_msg = ""
@@ -122,13 +122,13 @@ if base_adj != 0:
 else:
     explanation_log.append("• **Grind:** Flow rate is optimal. No change needed.")
 
-# 3. Dose Logic
+# 3. Dose Logic (Reverted to 0.5g)
 dose_adj = 0.0
 if texture == "Watery" and final_grind_adj == 0:
-    dose_adj = +1.0
-    explanation_log.append("• **Dose:** Time is perfect but texture is Watery. Grind change would ruin time, so we increase mass (+1.0g) to add resistance and body.")
+    dose_adj = +0.5 # CHANGED: Reverted from 1.0 to 0.5
+    explanation_log.append("• **Dose:** Time is perfect but texture is Watery. We suggest a small mass increase (+0.5g) to add resistance.")
 
-# 4. Temp Logic
+# 4. Temp & Ratio Logic (Fallback included)
 min_temp, max_temp = 92, 96
 if roast_level == "Dark": min_temp, max_temp = 86, 91
 if roast_level == "Medium": min_temp, max_temp = 91, 94
@@ -137,25 +137,32 @@ if roast_level == "Light": min_temp, max_temp = 93, 96
 is_decaf = "Decaf" in bean_name or "decaf" in bean_name
 if is_decaf:
     max_temp = min(max_temp, 92)
-    explanation_log.append("• **Temp:** Decaf detected. Safety cap applied (Max 92°C) to prevent ashiness.")
+    explanation_log.append("• **Temp:** Decaf detected. Safety cap applied (Max 92°C).")
 
 temp_adj = 0
+yield_adj_msg = "" # New fallback message
 temp_msg = ""
 flow_fast = current_time < (target_time_min - 8)
 
 if flow_fast:
     temp_msg = "⚠️ **Flow too fast.** Ignore Temp."
-    explanation_log.append("• **Temp:** Skipped. Flow is erratic/fast; changing temp now would be inconsistent. Fix flow first.")
+    explanation_log.append("• **Temp:** Skipped. Flow is erratic/fast; changing temp now would be inconsistent.")
 elif taste == "Harsh":
     if roast_level == "Light":
         temp_msg = "⚠️ **Harshness (Light Roast):** Try Temp -1°C OR Check Prep."
         explanation_log.append("• **Temp:** Harshness in Light Roast can be over-extraction (Temp too high) or channeling.")
     else:
         temp_msg = "🛑 **Harshness Detected:** Check WDT/Distribution."
-        explanation_log.append("• **Temp:** Harshness in Dark/Med roast is rarely Temp related. It indicates uneven extraction (Channeling).")
-elif taste == "Sour" and current_temp < max_temp:
-    temp_adj = +1
-    explanation_log.append(f"• **Temp:** Sourness indicates under-extraction. Increasing Temp (+1°C) improves solubility.")
+        explanation_log.append("• **Temp:** Harshness in Dark/Med roast indicates uneven extraction (Channeling).")
+elif taste == "Sour":
+    if current_temp < max_temp:
+        temp_adj = +1
+        explanation_log.append(f"• **Temp:** Sourness indicates under-extraction. Increasing Temp (+1°C) improves solubility.")
+    else:
+        # NEW: FALLBACK FOR SOUR AT MAX TEMP
+        yield_adj_msg = f"⚖️ **Next Yield:** Aim for {round(calc_target + 2, 1)}g (+2g)"
+        explanation_log.append(f"• **Ratio:** You are Sour but at Max Temp ({max_temp}°C). To extract more sweetness without burning the beans, we must extend the shot (Yield +2g).")
+
 elif taste == "Bitter" and current_temp > min_temp:
     temp_adj = -1
     explanation_log.append(f"• **Temp:** Bitterness indicates over-extraction. Reducing Temp (-1°C) reduces tannin solubility.")
@@ -179,7 +186,7 @@ next_pi = max(55, min(99, current_pi_power + pi_adj))
 
 # --- OUTPUT DISPLAY ---
 st.divider()
-st.subheader("🔮 Wizard Diagnosis (V5.5)")
+st.subheader("🔮 Wizard Diagnosis (V5.6)")
 
 col1, col2 = st.columns(2)
 
@@ -190,9 +197,14 @@ with col1:
     else:
         st.caption("Grind is Optimal")
     
+    # DOSE OUTPUT
     if dose_adj != 0:
         st.markdown(f"**⚖️ Next Dose:** `{current_dose + dose_adj}g`")
-        st.caption("Increased +1.0g for Body")
+        st.caption("Increased +0.5g for Body")
+        st.warning("⚠️ Check Headroom (Razor Tool).") # NEW WARNING
+    elif yield_adj_msg:
+        st.markdown(yield_adj_msg) # NEW FALLBACK DISPLAY
+        st.caption("Push ratio longer to fix Sourness")
 
 with col2:
     if temp_msg:
@@ -216,12 +228,12 @@ if age_msg: st.warning(age_msg)
 if pi_time_msg: st.info(pi_time_msg)
 
 # Yield Warning
-yield_diff = abs(current_yield - calc_target)
-tolerance = max(3.0, calc_target * 0.1)
-
-if current_yield > 0 and yield_diff > tolerance:
-    st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
-    explanation_log.append(f"• **Yield:** You missed the target by {round(yield_diff,1)}g. This drastically changes the Flavor Balance (Sour/Bitter).")
+if current_yield > 0:
+    yield_diff = abs(current_yield - calc_target)
+    tolerance = max(3.0, calc_target * 0.1)
+    if yield_diff > tolerance:
+        st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
+        explanation_log.append(f"• **Yield:** Missed target by {round(yield_diff,1)}g. This invalidates other variables.")
 
 if is_decaf and flow_fast:
     st.info("☕ **Decaf Tip:** Structure is weak. Consider Dosing +0.5g up.")
