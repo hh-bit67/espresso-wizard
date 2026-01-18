@@ -3,9 +3,9 @@ from datetime import date
 import math
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Espresso Wizard V5.6", page_icon="☕")
+st.set_page_config(page_title="Espresso Wizard V5.7", page_icon="☕")
 
-st.title("☕ Espresso Diagnostic Engine V5.6")
+st.title("☕ Espresso Diagnostic Engine V5.7")
 st.markdown("Optimization logic for **Breville Dual Boiler + Niche Zero**.")
 
 # --- SIDEBAR: INPUTS ---
@@ -69,7 +69,7 @@ with st.sidebar:
     taste = st.selectbox("Taste Balance", ["Balanced", "Sour", "Bitter", "Harsh"])
     texture = st.selectbox("Texture", ["Syrupy", "Watery", "Dry", "Channeling"])
 
-# --- LOGIC ENGINE (V5.6) ---
+# --- LOGIC ENGINE (V5.7) ---
 
 explanation_log = []
 
@@ -122,13 +122,13 @@ if base_adj != 0:
 else:
     explanation_log.append("• **Grind:** Flow rate is optimal. No change needed.")
 
-# 3. Dose Logic (Reverted to 0.5g)
+# 3. Dose Logic
 dose_adj = 0.0
 if texture == "Watery" and final_grind_adj == 0:
-    dose_adj = +0.5 # CHANGED: Reverted from 1.0 to 0.5
+    dose_adj = +0.5
     explanation_log.append("• **Dose:** Time is perfect but texture is Watery. We suggest a small mass increase (+0.5g) to add resistance.")
 
-# 4. Temp & Ratio Logic (Fallback included)
+# 4. Temp & Ratio Logic
 min_temp, max_temp = 92, 96
 if roast_level == "Dark": min_temp, max_temp = 86, 91
 if roast_level == "Medium": min_temp, max_temp = 91, 94
@@ -140,8 +140,8 @@ if is_decaf:
     explanation_log.append("• **Temp:** Decaf detected. Safety cap applied (Max 92°C).")
 
 temp_adj = 0
-yield_adj_msg = "" # New fallback message
 temp_msg = ""
+next_target_yield = calc_target # Default next target is same as current
 flow_fast = current_time < (target_time_min - 8)
 
 if flow_fast:
@@ -159,9 +159,9 @@ elif taste == "Sour":
         temp_adj = +1
         explanation_log.append(f"• **Temp:** Sourness indicates under-extraction. Increasing Temp (+1°C) improves solubility.")
     else:
-        # NEW: FALLBACK FOR SOUR AT MAX TEMP
-        yield_adj_msg = f"⚖️ **Next Yield:** Aim for {round(calc_target + 2, 1)}g (+2g)"
-        explanation_log.append(f"• **Ratio:** You are Sour but at Max Temp ({max_temp}°C). To extract more sweetness without burning the beans, we must extend the shot (Yield +2g).")
+        # SOUR FALLBACK: INCREASE YIELD
+        next_target_yield = calc_target + 2.0
+        explanation_log.append(f"• **Ratio:** You are Sour but at Max Temp ({max_temp}°C). We must extend the shot (+2g yield) to extract more sweetness without burning the beans.")
 
 elif taste == "Bitter" and current_temp > min_temp:
     temp_adj = -1
@@ -186,7 +186,7 @@ next_pi = max(55, min(99, current_pi_power + pi_adj))
 
 # --- OUTPUT DISPLAY ---
 st.divider()
-st.subheader("🔮 Wizard Diagnosis (V5.6)")
+st.subheader("🔮 Wizard Diagnosis (V5.7)")
 
 col1, col2 = st.columns(2)
 
@@ -201,10 +201,11 @@ with col1:
     if dose_adj != 0:
         st.markdown(f"**⚖️ Next Dose:** `{current_dose + dose_adj}g`")
         st.caption("Increased +0.5g for Body")
-        st.warning("⚠️ Check Headroom (Razor Tool).") # NEW WARNING
-    elif yield_adj_msg:
-        st.markdown(yield_adj_msg) # NEW FALLBACK DISPLAY
-        st.caption("Push ratio longer to fix Sourness")
+        st.warning("⚠️ Check Headroom (Razor Tool).")
+    elif next_target_yield != calc_target:
+        st.markdown(f"**🎯 Next Target Yield:** `{round(next_target_yield, 1)}g`")
+        st.caption(f"Previous Target: {round(calc_target, 1)}g")
+        st.info("💡 Extend shot to fix Sourness")
 
 with col2:
     if temp_msg:
@@ -225,20 +226,4 @@ with col2:
 st.divider()
 
 if age_msg: st.warning(age_msg)
-if pi_time_msg: st.info(pi_time_msg)
-
-# Yield Warning
-if current_yield > 0:
-    yield_diff = abs(current_yield - calc_target)
-    tolerance = max(3.0, calc_target * 0.1)
-    if yield_diff > tolerance:
-        st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
-        explanation_log.append(f"• **Yield:** Missed target by {round(yield_diff,1)}g. This invalidates other variables.")
-
-if is_decaf and flow_fast:
-    st.info("☕ **Decaf Tip:** Structure is weak. Consider Dosing +0.5g up.")
-
-# --- EXPLANATION SECTION ---
-with st.expander("📝 Logic Analysis (Why did we choose this?)"):
-    for log_item in explanation_log:
-        st.markdown(log_item)
+if pi_time_msg: st.info(pi_time_msg
