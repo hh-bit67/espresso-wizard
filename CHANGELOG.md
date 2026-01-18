@@ -1,5 +1,11 @@
 # Changelog
 
+## [V5.5] - 2026-01-19
+### Added
+- **Logic Explanation Module:** Added an "Analysis" dropdown that explains the "Why" behind every adjustment (Grind, Dose, Temp, PI) in plain English.
+- **Detailed Decaf Logging:** The analysis now explicitly states when Decaf safety caps are applied.
+- **Yield Analysis:** Added explanation for why missing the target yield invalidates other flavor data.
+
 ## [V5.4] - 2026-01-19
 ### Added
 - **PI Time Input:** Added field to capture Pre-Infusion duration (seconds).
