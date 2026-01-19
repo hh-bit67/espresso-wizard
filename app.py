@@ -3,12 +3,12 @@ import pandas as pd
 from datetime import date
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Espresso Wizard V5.9", page_icon="☕", layout="wide")
+st.set_page_config(page_title="Espresso Wizard V6.0", page_icon="☕", layout="wide")
 
-st.title("☕ Espresso Diagnostic Engine V5.9")
+st.title("☕ Espresso Diagnostic Engine V6.0")
 st.markdown("Optimization logic for **Breville Dual Boiler + Niche Zero**.")
 
-# --- SESSION STATE (HISTORY) ---
+# --- SESSION STATE ---
 if 'history' not in st.session_state:
     st.session_state.history = []
 
@@ -32,15 +32,27 @@ with st.sidebar:
         manual_sens = st.slider("Sensitivity Factor", 0.5, 1.5, 1.0, 0.1)
     
     st.header("2. Shot Parameters")
-    shot_style = st.selectbox("Shot Style", ["Ristretto (1:1.25)", "Normale (1:2)", "Lungo (1:3)", "Custom"])
+    # NEW: Added Slayer-lite Option
+    shot_style = st.selectbox("Shot Style", ["Normale (1:2)", "Ristretto (1:1.25)", "Lungo (1:3)", "Slayer-lite (Decaf)", "Custom"])
+    
+    # Defaults
+    target_yield = 36.0
+    target_time_min, target_time_max = 25, 30
+    ratio = 2.0
     
     if shot_style == "Custom":
         target_yield = st.number_input("Target Yield (g)", value=36.0)
         target_time_min = st.number_input("Min Time (s)", value=25.0)
         target_time_max = st.number_input("Max Time (s)", value=30.0)
         target_center = (target_time_min + target_time_max) / 2
-        ratio = 0 
+        ratio = 0
+    elif shot_style == "Slayer-lite (Decaf)":
+        # Slayer Defaults
+        ratio = 2.0
+        target_time_min, target_time_max = 35, 55 # Long shots common with profiling
+        target_center = 45
     else:
+        # Standard Styles
         if "Ristretto" in shot_style:
             ratio = 1.25
             target_time_min, target_time_max = 15, 20
@@ -50,7 +62,7 @@ with st.sidebar:
         else: # Normale
             ratio = 2.0
             target_time_min, target_time_max = 25, 30
-        target_center = 27.5 if "Normale" in shot_style else (17.5 if "Ristretto" in shot_style else 40)
+        target_center = (target_time_min + target_time_max) / 2
 
     st.header("3. Shot Results")
     current_grind = st.number_input("Current Grind", value=15.0, step=0.5)
@@ -60,14 +72,25 @@ with st.sidebar:
     st.caption(f"🎯 Target Yield: {calc_target}g")
     current_yield = st.number_input("Yield Out (g)", value=0.0, step=0.1)
     
-    current_time = st.number_input("Time Total (s)", value=30.0, step=1.0)
+    # CONDITIONAL INPUTS FOR SLAYER
+    slayer_stream = False
+    slayer_flow_dur = 0
+    
+    if shot_style == "Slayer-lite (Decaf)":
+        st.markdown("🕵️ **Slayer Diagnostics**")
+        slayer_stream = st.checkbox("Did stream form BEFORE full pressure ramp?", value=True)
+        slayer_flow_dur = st.number_input("Duration of low-bar flow (sec)?", value=10, help="How long did it flow at 6-bar before pump ramped up?")
+        current_time = st.number_input("Total Shot Time (s)", value=45.0, step=1.0)
+    else:
+        current_time = st.number_input("Time Total (s)", value=30.0, step=1.0)
+
     current_temp = st.number_input("Temp (°C)", value=93, min_value=86, max_value=96)
     
     col_pi1, col_pi2 = st.columns(2)
     with col_pi1:
-        current_pi_power = st.number_input("PI Power (%)", value=65, min_value=55, max_value=99)
+        current_pi_power = st.number_input("PI Power/PPW (%)", value=65, min_value=50, max_value=99)
     with col_pi2:
-        current_pi_time = st.number_input("PI Time (s)", value=7, step=1)
+        current_pi_time = st.number_input("PI Time/PrE (s)", value=7, step=1)
     
     st.header("4. Sensory Feedback")
     taste = st.selectbox("Taste Balance", ["Balanced", "Sour", "Bitter", "Harsh"])
@@ -75,176 +98,172 @@ with st.sidebar:
     
     st.markdown("---")
     if st.button("📝 Log This Shot"):
-        # Create a record
         record = {
             "Bean": bean_name,
+            "Style": shot_style,
             "Grind": current_grind,
             "Dose": current_dose,
             "Yield": current_yield,
             "Time": current_time,
             "Temp": current_temp,
-            "Taste": taste,
-            "Texture": texture
+            "Taste": taste
         }
         st.session_state.history.append(record)
         st.success("Shot Logged!")
 
-# --- LOGIC ENGINE (V5.9) ---
+# --- LOGIC ENGINE (V6.0) ---
 
 explanation_log = []
+base_adj = 0.0
+next_grind = current_grind
+dose_adj = 0.0
+next_target_yield = calc_target
+temp_adj = 0
+temp_msg = ""
+pi_adj = 0
+next_pi = current_pi_power
 
-# 1. Bean Age Logic
+# 1. Bean Age
 age_msg = ""
 if know_date and roast_date:
     days_old = (date.today() - roast_date).days
     if days_old < 7:
         age_msg = f"⚠️ **Beans Fresh ({days_old}d).** Rest needed."
-        explanation_log.append(f"• **Age:** Beans are very fresh (<7d). CO2 off-gassing causes resistance bubbles.")
     elif days_old > 30:
         age_msg = f"⚠️ **Beans Aging ({days_old}d).** Expect faster flow."
-        explanation_log.append(f"• **Age:** Beans are aging (>30d). Staling reduces resistance, causing faster flow.")
 
-# 2. Grind Logic
-lower_limit = target_time_min
-upper_limit = target_time_max
-
-base_adj = 0.0
-reason = ""
-
-if current_time >= lower_limit and current_time <= upper_limit:
-    base_adj = 0.0
-    reason = "Time is within target window."
-elif current_time < (lower_limit - 8):
-    base_adj = -2.0
-    reason = "Shot ran >8s fast (Gusher)."
-elif current_time < (lower_limit - 4):
-    base_adj = -1.0
-    reason = "Shot ran >4s fast."
-elif current_time < lower_limit:
-    base_adj = -0.5
-    reason = "Shot ran slightly fast."
-elif current_time > (upper_limit + 10):
-    base_adj = +1.5
-    reason = "Shot choked (>10s slow)."
-elif current_time > (upper_limit + 5):
-    base_adj = +1.0
-    reason = "Shot ran >5s slow."
-elif current_time > upper_limit:
-    base_adj = +0.5
-    reason = "Shot ran slightly slow."
-
-sensitivity = manual_sens if use_manual_sens else (0.6 if roast_level == "Dark" else (0.8 if roast_level == "Medium" else 1.0))
-final_grind_adj = round((base_adj * sensitivity) * 2) / 2
-next_grind = current_grind + final_grind_adj
-
-if base_adj != 0:
-    explanation_log.append(f"• **Grind:** {reason} Applied base adj ({base_adj}) x Sensitivity ({sensitivity}) = {final_grind_adj}.")
-else:
-    explanation_log.append("• **Grind:** Flow rate is optimal. No change needed.")
-
-# 3. Dose Logic
-dose_adj = 0.0
-if texture == "Watery" and final_grind_adj == 0:
-    dose_adj = +0.5
-    explanation_log.append("• **Dose:** Time is perfect but texture is Watery. We suggest a small mass increase (+0.5g) to add resistance.")
-
-# 4. Temp & Ratio Logic
-min_temp, max_temp = 92, 96
-if roast_level == "Dark": min_temp, max_temp = 86, 91
-if roast_level == "Medium": min_temp, max_temp = 91, 94
-if roast_level == "Light": min_temp, max_temp = 93, 96
-
-is_decaf = "Decaf" in bean_name or "decaf" in bean_name
-if is_decaf:
-    max_temp = min(max_temp, 92)
-    explanation_log.append("• **Temp:** Decaf detected. Safety cap applied (Max 92°C).")
-
-temp_adj = 0
-temp_msg = ""
-next_target_yield = calc_target
-flow_fast = current_time < (target_time_min - 8)
-
-if flow_fast:
-    temp_msg = "⚠️ **Flow too fast.** Ignore Temp."
-    explanation_log.append("• **Temp:** Skipped. Flow is erratic/fast; changing temp now would be inconsistent.")
-
-# NEW: Enforce Max Temp Cap even if Sour
-elif current_temp > max_temp:
-    temp_adj = max_temp - current_temp # Force down to max
-    explanation_log.append(f"• **Temp:** Current temp ({current_temp}°C) exceeds safety limit for {roast_level} Roast ({max_temp}°C). Reducing to {max_temp}°C to prevent ashiness.")
+# === BRANCH 1: SLAYER-LITE LOGIC ===
+if shot_style == "Slayer-lite (Decaf)":
     
+    # A. Machine Config Check
+    if current_pi_power < 78 or current_pi_power > 82:
+        explanation_log.append(f"• **Machine:** Slayer-lite requires PI Power ~80% to hit 6-bar. You are at {current_pi_power}%.")
+        next_pi = 80 # Suggest fix
+    
+    if current_pi_time < 15:
+        explanation_log.append(f"• **Machine:** PrE time is too short ({current_pi_time}s). Slayer-lite needs ~20s to allow for saturation + low-bar flow.")
+
+    # B. Grind Logic (Rule A & B)
+    if not slayer_stream:
+        # Rule A: No stream before ramp -> Too Fine
+        base_adj = +1.0 
+        explanation_log.append("• **Grind:** No stream formed during low-pressure phase. Grind is **Too Fine** to permit 6-bar flow.")
+    elif slayer_flow_dur < 3:
+        # Rule B: Fast stream -> Too Coarse
+        base_adj = -0.5
+        explanation_log.append("• **Grind:** Low-pressure flow started too fast (<3s). Grind is **Too Coarse**.")
+    else:
+        explanation_log.append("• **Grind:** Low-pressure flow behavior is optimal.")
+
+    final_grind_adj = base_adj # Sensitivity less relevant here, direct observation rules apply
+    next_grind = current_grind + final_grind_adj
+
+    # C. Ratio/Dose Logic (Rule D - Decaf Specific)
+    if texture == "Watery": # "Thin"
+        # Suggest Tighter Ratio (1:1.75)
+        new_ratio_target = current_dose * 1.75
+        next_target_yield = new_ratio_target
+        explanation_log.append("• **Ratio:** Texture is Thin/Watery. For Decaf Slayer shots, tighten ratio to **1:1.75** to increase body.")
+    
+    # D. Temp Logic (Calibration Targets)
+    # Dark: 91, Med: 93, Light: 94-95
+    target_temp_cal = 93
+    if roast_level == "Dark": target_temp_cal = 91
+    if roast_level == "Light": target_temp_cal = 95
+    
+    if taste == "Bitter": # "Ashy"
+        if current_temp > target_temp_cal:
+            temp_adj = target_temp_cal - current_temp
+            explanation_log.append(f"• **Temp:** Taste is Bitter/Ashy. For {roast_level} Decaf, reduce temp to **{target_temp_cal}°C**.")
+    
+    next_temp = current_temp + temp_adj
+
+# === BRANCH 2: STANDARD LOGIC ===
+else:
+    # Standard Grind Logic
+    lower_limit = target_time_min
+    upper_limit = target_time_max
+    
+    if current_time >= lower_limit and current_time <= upper_limit:
+        base_adj = 0.0
+    elif current_time < (lower_limit - 8):
+        base_adj = -2.0
+    elif current_time < (lower_limit - 4):
+        base_adj = -1.0
+    elif current_time < lower_limit:
+        base_adj = -0.5
+    elif current_time > (upper_limit + 10):
+        base_adj = +1.5
+    elif current_time > (upper_limit + 5):
+        base_adj = +1.0
+    elif current_time > upper_limit:
+        base_adj = +0.5
+
+    sensitivity = manual_sens if use_manual_sens else (0.6 if roast_level == "Dark" else (0.8 if roast_level == "Medium" else 1.0))
+    final_grind_adj = round((base_adj * sensitivity) * 2) / 2
+    next_grind = current_grind + final_grind_adj
+    
+    if final_grind_adj != 0:
+        explanation_log.append(f"• **Grind:** Adjusted based on time deviation from {lower_limit}-{upper_limit}s.")
+
+    # Standard Dose Logic
+    if texture == "Watery" and final_grind_adj == 0:
+        dose_adj = +0.5
+        explanation_log.append("• **Dose:** Time is perfect but texture is Watery. Increase mass (+0.5g).")
+
+    # Standard Temp Logic
+    min_temp, max_temp = 92, 96
+    if roast_level == "Dark": min_temp, max_temp = 86, 91
+    if roast_level == "Medium": min_temp, max_temp = 91, 94
+    if roast_level == "Light": min_temp, max_temp = 93, 96
+    
+    # Decaf Check
+    is_decaf = "Decaf" in bean_name or "decaf" in bean_name
+    if is_decaf: max_temp = min(max_temp, 92)
+
+    # Temp Adjustments
     if taste == "Sour":
-         # If we are lowering temp on a Sour shot, we must extend yield aggressively
-         base_yield = max(calc_target, current_yield) # Start from wherever we actually are
-         next_target_yield = base_yield + 2.0
-         explanation_log.append(f"• **Ratio:** Reducing temp will increase Sourness. We MUST extend the shot (+2g from current {base_yield}g) to compensate.")
+        if current_temp < max_temp:
+            temp_adj = +1
+            explanation_log.append("• **Temp:** Sour -> Increase Temp +1°C.")
+        else:
+            base_yield = max(calc_target, current_yield)
+            next_target_yield = base_yield + 2.0
+            explanation_log.append(f"• **Ratio:** Max Temp reached. Extend shot (+2g) to fix sourness.")
+    elif taste == "Bitter" and current_temp > min_temp:
+        temp_adj = -1
+        explanation_log.append("• **Temp:** Bitter -> Reduce Temp -1°C.")
+        
+    next_temp = current_temp + temp_adj
 
-elif taste == "Harsh":
-    if roast_level == "Light":
-        temp_msg = "⚠️ **Harshness (Light Roast):** Try Temp -1°C OR Check Prep."
-        explanation_log.append("• **Temp:** Harshness in Light Roast can be over-extraction (Temp too high) or channeling.")
-    else:
-        temp_msg = "🛑 **Harshness Detected:** Check WDT/Distribution."
-        explanation_log.append("• **Temp:** Harshness in Dark/Med roast indicates uneven extraction (Channeling).")
-elif taste == "Sour":
-    if current_temp < max_temp:
-        temp_adj = +1
-        explanation_log.append(f"• **Temp:** Sourness indicates under-extraction. Increasing Temp (+1°C) improves solubility.")
-    else:
-        # SOUR FALLBACK
-        base_yield = max(calc_target, current_yield)
-        next_target_yield = base_yield + 2.0
-        explanation_log.append(f"• **Ratio:** At Max Temp ({max_temp}°C). Extending shot (+2g) to extract sweetness.")
 
-elif taste == "Bitter" and current_temp > min_temp:
-    temp_adj = -1
-    explanation_log.append(f"• **Temp:** Bitterness indicates over-extraction. Reducing Temp (-1°C) reduces tannin solubility.")
-
-next_temp = current_temp + temp_adj
-
-# 5. PI Logic
-pi_adj = 0
-pi_time_msg = ""
-if texture == "Channeling":
-    pi_adj = -15 if is_decaf else -10
-    explanation_log.append(f"• **PI Power:** Channeling detected. Reducing pressure ({pi_adj}%) helps preserve puck integrity.")
-elif texture == "Watery":
-    pi_adj = +5
-    explanation_log.append("• **PI Power:** Shot is Watery. Increasing PI pressure (+5%) compresses the puck for more resistance.")
-elif texture == "Dry":
-    pi_time_msg = f"💧 **Dryness Detected:** Increase PI Time to {current_pi_time + 3}s (+3s)"
-    explanation_log.append("• **PI Time:** Dry/Astringent finish often means uneven saturation. Longer Pre-Infusion (+3s) helps water penetrate evenly.")
-
-next_pi = max(55, min(99, current_pi_power + pi_adj))
-
-# --- OUTPUT DISPLAY ---
+# --- SHARED OUTPUT DISPLAY ---
 st.divider()
-st.subheader("🔮 Wizard Diagnosis (V5.9)")
+st.subheader("🔮 Wizard Diagnosis (V6.0)")
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown(f"**👉 Next Grind:** `{next_grind}`")
-    if final_grind_adj != 0:
-        st.caption(f"Adj: {final_grind_adj} (Sens: {sensitivity}x)")
+    if next_grind != current_grind:
+        st.caption(f"Adjustment: {next_grind - current_grind:+}")
     else:
         st.caption("Grind is Optimal")
     
     st.markdown("---")
     
-    # DOSE OUTPUT
+    # DOSE / RATIO OUTPUT
     if dose_adj != 0:
         st.markdown(f"**⚖️ Next Dose:** `{current_dose + dose_adj}g`")
-        st.caption("Increased +0.5g for Body")
-        st.warning("⚠️ Check Headroom (Razor Tool).")
+        st.warning("⚠️ Check Headroom.")
     elif next_target_yield != calc_target:
-        st.caption("Dose is Optimal")
-
-    # YIELD OUTPUT
-    if next_target_yield != calc_target:
         st.markdown(f"**🎯 Next Target Yield:** `{round(next_target_yield, 1)}g`")
-        st.caption(f"Based on: {max(calc_target, current_yield)}g + 2g")
-        st.info("💡 Extend shot to fix Sourness")
+        if shot_style == "Slayer-lite (Decaf)":
+            st.caption("Tightened Ratio (1:1.75) for Body")
+        else:
+            st.caption("Extended Ratio to fix Sourness")
+    else:
+        st.caption("Dose & Yield are Optimal")
 
 with col2:
     if temp_msg:
@@ -253,37 +272,35 @@ with col2:
         st.markdown(f"**🌡️ Next Temp:** `{next_temp}°C`")
         if temp_adj != 0: 
             st.caption(f"Adj: {temp_adj:+d}°C")
-            if temp_adj > 0: st.warning("⚠️ Change may affect flow.")
         else: 
             st.caption("Temp is Optimal")
 
     st.markdown("---")
 
-    if pi_adj != 0:
+    # PI OUTPUT
+    if next_pi != current_pi_power:
         st.markdown(f"**💪 Next PI Power:** `{next_pi}%`")
+        st.info("Adjust to hit 6-bar target")
     else:
         st.markdown(f"**💪 Next PI Power:** `{current_pi_power}%`")
 
 st.divider()
-
 if age_msg: st.warning(age_msg)
-if pi_time_msg: st.info(pi_time_msg)
+if texture == "Channeling": st.error("🛑 **Channeling Detected:** Fix WDT / Level Tamp.")
 
+# Yield Warning
 if current_yield > 0:
     yield_diff = abs(current_yield - calc_target)
-    tolerance = max(3.0, calc_target * 0.1)
-    if yield_diff > tolerance:
-        st.error(f"⚖️ **Yield Warning:** Target {calc_target}g | Actual {current_yield}g")
-        explanation_log.append(f"• **Yield:** Missed target by {round(yield_diff,1)}g. This invalidates other variables.")
+    if yield_diff > max(3.0, calc_target * 0.1):
+        st.error(f"⚖️ **Yield Miss:** Target {calc_target}g | Actual {current_yield}g")
 
 # --- EXPLANATION SECTION ---
-with st.expander("📝 Logic Analysis (Why did we choose this?)"):
+with st.expander("📝 Logic Analysis"):
     for log_item in explanation_log:
         st.markdown(log_item)
 
-# --- HISTORY SECTION ---
+# --- HISTORY ---
 if len(st.session_state.history) > 0:
     st.divider()
     st.subheader("📜 Session Log")
-    df = pd.DataFrame(st.session_state.history)
-    st.dataframe(df)
+    st.dataframe(pd.DataFrame(st.session_state.history))
