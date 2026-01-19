@@ -1,5 +1,14 @@
 # Changelog
 
+## [V6.0] - 2026-01-19
+### New Profile: Slayer-lite (Decaf)
+- **Specialized Mode:** Added a "Slayer-lite (Decaf)" shot style tailored for BDB flow profiling.
+- **New Diagnostics:**
+    - Checks for "Stream Formation" during the low-pressure phase to diagnose grind size (Rule A/B).
+    - Checks Machine PPW (Target 80%) and PrE Time (Target ~20s) to ensure proper 6-bar profiling.
+    - **Decaf Tuning:** Suggests a tighter 1:1.75 ratio if texture is "Watery" and enforces stricter temperature targets (e.g., 91°C for Dark Decaf) to prevent ashiness.
+- **UI Update:** The interface now dynamically changes to ask specific flow-profiling questions when this mode is selected.
+
 ## [V5.9] - 2026-01-19
 ### Added
 - **Session Logging:** Added a "Log This Shot" button. Users can now build a table of their shots during a single session to track trends.
